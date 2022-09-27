@@ -1,0 +1,108 @@
+React Query is a library for fetching data in a react application. Since react is a Ui library,  there is no specific pattern for data fetching.
+state managament libraries are not good for asyncronous or server state; because server state is very differnent from the client state
+
+client vs server state;
+client state is persisted in your app memory and accessing or updating is syncronous;perhaps server state is persisted remotely most problably somehow
+in the database and requires asyncronous apis for fetching and updating;
+
+React Query provides Query cache out of the box with 5 minutes time(means it will not show the loading spinner if we make the request to the same endpoint, and in the background it will automatically fetch the newest data and update the stale data to the newest provides the best user experiene),
+we can changed this cache query time with a cacheTime option in the third argument
+
+// let's say I have some endpoint which renders some data and it is not changed frequently so, we want to reduce the number of =network  requets , we do it by passing a third argument with a value staletime of your value then it will only make a network call after this time(note the default stale time is 0) that's why it made a new request every time
+
+another important values are refetchOnMount a boolean value which is by default true, means every time we come to the page  means the component mount a network request is made which is good to keep the UI up-to-date but we can make it false then on the subsequent visits no request is made(means it is rendering the stale data)
+
+another important values are refetchOnWindowFocus a boolean value which is by default true, means every time we come to the page or we are at a page and in the background somehow data is updated a background refetch is automatically done by React query to get the newest data  which is good to keep the UI up-to-date but we can make it false then  we have to manually refresh the page to view the newest data
+
+another important values are  refetchInterval which is by default set to false. It is useful when we have a page where data is changed after some interval and we want a newtork request after this interval to keep the Ui with the newest data then we set it as  refetchInterval: 2000 in this example i set to 2s then it will refetch the data after 2 s( this is also refers to as polling)
+
+refetchInterval will not make a network call when the screen is not focused means in the background to make it refetch even not focused we have to set refetchIntervalInBackground: true, which is false by default
+
+
+we know that useQuery will fetch the data as the component mount sometimes we need the data is fetched only when we click the button for this we have to do two things first is to in the third argument object set enabled to false and then destrucute the refetch from the useQuery and pass the refetch to the onClickk or any event handler
+
+// if we have to perform some side effects after the successful respose from the api or if we get some error from the api we have onSuccess and onError values which we make a separate function of both these with data(which is the api data) as an argument of onSuccess and error as the argument to onError and then assign the value to these to acheive this;
+
+
+/// sometimes we only show to some data and then we have another option called select which is a function here we change the data according to our need : this select takes data as an argument which is the api data so we do whatever we want
+
+when query by id, we have to use array as a first argument as ['super-heroes', heroId] so for every new id React Query cache it's data
+
+to make parallel queries repeat the useQuery sytax example is as follows:
+useQuery('super-heroes', fetchSuperHeroes);
+  useQuery('friends', fetchFriends);
+
+
+  when we have dynamic parallel queries , we have to use useQueries instead of the useQuery , code is written in DynamicParallelQuery.js file
+  useQueries will return the array which contains the data
+
+when we have queries that we want to run sequentially see the code in DependentQueries
+
+for initial Query data: >>> see the useSuperHeroData.js
+
+if we have pagination then we use the option keepPreviousData: true , then user will not show the loading spinner when he moves to the next page documents means user is not facing any layout shift
+
+for infinite queries see the InfiniteQueries file (InfiniteQueries means show the load more button and then click on that button to show more documents)
+
+
+when we add data by default new data is not shown in the current page we haVE  to manually refresh the page to get the newest data but react-query make it very simple all we have to do is to import the useQueryClient and then assign it to a variable in the useMutation, in the below example queryClient is that variable and the key is super-heroes in this case as we have to refetch the data for this key
+ 
+export const useAddHero = () => {
+  const queryClient = useQueryClient();
+  return useMutation(addSuperHero, {
+    onSuccess: () => {
+      queryClient.invalidateQueries('super-heroes');
+    },
+  });
+}
+
+
+ /// in the above implementation we have to perform two requests one for adding and other for getting the data but we can improve it as when we add data it is in the response of the network so we use this and then there is no network request for getting the data, 
+ export const useAddHero = () => {
+  const queryClient = useQueryClient();
+  return useMutation(addSuperHero, {
+    onSuccess: (data) => {
+      
+      queryClient.setQueryData('super-heroes', (oldQueryData) => {
+        return {
+          ...oldQueryData,
+          data: [...oldQueryData.data, data.data],
+        };
+      });
+    },
+  });
+};
+
+
+now for optimistic updates WE USE onMutate, onError,onSettled
+
+export const useAddHero = () => {
+  const queryClient = useQueryClient();
+  return useMutation(addSuperHero, {
+    onMutate: async (newHero) => {
+      await queryClient.cancelQueries('super-heroes');
+      const prevQueryData = queryClient.getQueryData('super-heroes');
+      queryClient.setQueryData('super-heroes', (oldQueryData) => {
+        return {
+          ...oldQueryData,
+          // here we add the id because with mutation we have to give a id also
+          data: [
+            ...oldQueryData.data,
+            { id: oldQueryData.data.length + 1, ...newHero },
+          ],
+        };
+      });
+      return {
+        prevQueryData,
+      };
+    },
+    // we do this because if we face a error during optimistic upates we show the previous data
+    onError: (error, newHero, ctx) => {
+      queryClient.setQueryData('super-heroes', ctx.prevQueryData);
+    },
+    // we do this to keep our app in-sync with the backend
+    onSettled: () => {
+      queryClient.invalidateQueries('super-heroes');
+    },
+  });
+};
